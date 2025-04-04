@@ -1,0 +1,295 @@
+---
+title: "exercise-10"
+author: "Minsoo Joo"
+date: "2025-04-04"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(skimr)
+```
+
+```{r}
+f<-"https://raw.githubusercontent.com/difiore/ada-datasets/refs/heads/main/AVONETdataset1.csv"
+d<-read_csv(f, col_names=TRUE)
+d <- d %>% 
+  select(Species1, Family1, Order1,
+         Beak.Length_Culmen, Beak.Width, Beak.Depth,
+         Tarsus.Length, Wing.Length, Tail.Length, Mass,
+         Habitat, Migration, Trophic.Level, Trophic.Niche,
+         Min.Latitude, Max.Latitude, Centroid.Latitude,
+         Primary.Lifestyle, Range.Size)
+
+skim(d)
+```
+
+Categorical variables: Species1, Family1, Order1, Habitat, Trophic.Level, Trophic.Niche, Primary.Lifestyle
+
+Numerical variables: all other variables
+
+# Challenge 1
+
+## Step 1
+
+```{r}
+d <- d %>% 
+  filter(!is.na(Trophic.Level), !is.na(Migration))
+# Convert Migration to factor
+d <- d %>%
+  mutate(Migration = as.factor(Migration))
+
+d %>% 
+  ggplot(aes(x = Trophic.Level, y = log(Mass))) +
+  geom_boxplot()
+
+d %>% 
+  ggplot(aes(x = Migration, y = log(Mass))) +
+  geom_boxplot()
+
+
+```
+
+## Step 2
+
+Both are significantly associated with log(Mass).
+(p-value \< 0.05)
+
+Both Migration2 and Migration3 differ significantly from Migration1.
+(very small p-values)
+
+Migration1 is the reference level.
+
+```{r}
+summary(lm(log(Mass) ~ Trophic.Level, data=d))
+summary(lm(log(Mass) ~ Migration, data=d))
+```
+
+All three categories are significantly different from each other.
+
+```{r}
+summary(lm(log(Mass) ~ relevel(d$Migration, ref = "2"), data = d))
+```
+
+## Step 3
+
+All migration groups differ significantly from one another.
+
+```{r}
+m <- aov(log(Mass) ~ Migration, data = d)
+posthoc <- TukeyHSD(m, which = "Migration", ordered = TRUE, conf.level = 0.95)
+posthoc 
+```
+
+## Step 4
+
+```{r}
+library(infer)
+
+d <- d %>%
+  mutate(logMass = log(Mass))
+
+obs_f <- d %>%
+  specify(logMass ~ Trophic.Level) %>%
+  calculate(stat = "F")
+
+# Null distribution
+null_dist <- d %>%
+  specify(logMass ~ Trophic.Level) %>%
+  hypothesize(null = "independence") %>%
+  generate(reps = 1000, type = "permute") %>%
+  calculate(stat = "F")
+
+# Empirical p-value
+get_p_value(null_dist, obs_stat = obs_f, direction = "greater")
+```
+
+# Challenge 2
+
+## Step 1
+
+```{r}
+relBeak <- lm(log(d$Beak.Length_Culmen)~log(d$Mass), data=d)
+relTarsus <- lm(log(d$Tarsus.Length)~log(d$Mass), data=d)
+d <- d %>% 
+  mutate(relBeak = relBeak$residuals,
+         relTarsus = relTarsus$residuals)
+```
+
+## Step 2
+
+```{r}
+ggplot(d, aes(x = Primary.Lifestyle, y = relTarsus)) +
+  geom_boxplot()
+
+ggplot(d, aes(x = Trophic.Niche, y = relBeak)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+## Step 3
+
+Migration is significantly associated with log(Range.Size).
+
+Migration behavior explains approximately 8.7% of the variance in log-transformed geographic range size.
+
+```{r}
+d <- d %>%
+  filter(!is.na(Migration))
+
+# Right-skewed
+ggplot(d, aes(x = Range.Size)) +
+  geom_histogram(bins = 30)
+
+# It needs to be log-transformed
+d <- d %>%
+  mutate(logRS = log(Range.Size))
+
+m <- lm(logRS ~ Migration, data = d)
+summary(m)
+```
+
+Both Migration2 and Migration3 are significantly different from the reference (Migration1).
+
+All three migration categories are significantly different from each other.
+(p-value \< 0)
+
+```{r}
+m2 <- lm(logRS ~ relevel(d$Migration, ref = "2"), data = d)
+summary(m2)
+
+m3 <- aov(log(Mass) ~ Migration, data = d)
+posthoc <- TukeyHSD(m3, which = "Migration", ordered = TRUE, conf.level = 0.95)
+posthoc 
+```
+
+## Step 4
+
+```{r}
+d_p <- d %>% 
+  filter(Order1 == "Passeriformes")
+```
+
+```{r}
+ggplot(d_p, aes(x = Primary.Lifestyle, y = relBeak)) +
+  geom_boxplot()
+
+ggplot(d_p, aes(x = Trophic.Level, y = relBeak)) +
+  geom_boxplot()
+```
+
+Primary.Lifestyle is strongly associated with relative beak length.
+
+And there is a significant difference between groups.
+
+```{r}
+m3 <- lm(relBeak ~ Primary.Lifestyle, data = d_p)
+summary(m3)
+anova(m3)
+```
+
+Trophic.Level is strongly associated with relative beak length.
+
+And there is a significant difference between groups.
+
+```{r}
+m4 <- lm(relBeak ~ Trophic.Level, data = d_p)
+summary(m4)
+anova(m4)
+```
+
+```{r}
+unique(d_p$Primary.Lifestyle)
+unique(d_p$Trophic.Level)
+```
+
+## Step 5
+
+Two-way ANOVA showed that both Primary.Lifestyle and Trophic.Level are significantly associated with relative beak length.
+
+Primary.Lifestyle: All three show significantly longer relative beaks than Aerial species.
+
+Trophic.Level: Herbivore clearly differ from carnivore, while omnivore is similar.
+
+```{r}
+m5 <- lm(relBeak ~ Primary.Lifestyle + Trophic.Level, data = d_p)
+summary(m5)
+anova(m5)
+```
+
+## Step 6
+
+Relative beak length is significantly influenced by both primary lifestyle and trophic level, and their interaction indicates that the effect of one depends on the other.
+
+```{r}
+m6 <- lm(relBeak ~ Primary.Lifestyle + Trophic.Level + Primary.Lifestyle:Trophic.Level, data = d_p)
+summary(m6)
+anova(m6)
+```
+
+## Step 7
+
+```{r}
+interaction.plot(x.factor = d_p$Primary.Lifestyle, xlab = "Primary.Lifestyle",
+                 trace.factor = d_p$Trophic.Level, trace.label = "Trophic.Level",
+                 response = d_p$relBeak, fun = base::mean, ylab = "Mean Relative Beak Length")
+```
+
+## Step 8
+
+Less than 2.
+(the assumption may not be violated)
+
+```{r}
+# Trophic.Level
+d_p %>%
+  group_by(Trophic.Level) %>%
+  summarise(n = n(), sd_relBeak = sd(relBeak)) %>%
+  summarise(ratio = max(sd_relBeak) / min(sd_relBeak))
+
+# Primary.Lifestyle
+d_p %>%
+  group_by(Primary.Lifestyle) %>%
+  summarise(n = n(), sd_relBeak = sd(relBeak)) %>%
+  summarise(ratio = max(sd_relBeak) / min(sd_relBeak))
+```
+
+Residuals were approximately normally distributed across most groups.
+
+Minor deviations were observed, but overall the normality assumption appears reasonably met.
+
+```{r}
+mod <- lm(relBeak ~ Trophic.Level + Primary.Lifestyle, data = d_p)
+d_p$resid <- residuals(mod)
+
+library(ggplot2)
+
+# Trophic.Level
+ggplot(d_p, aes(sample = resid)) +
+  stat_qq() +
+  stat_qq_line() +
+  facet_wrap(~ Trophic.Level)
+
+ggplot(d_p, aes(x = resid)) +
+  geom_histogram(bins = 30, fill = "blue", color = "black") +
+  facet_wrap(~ Trophic.Level)
+
+# Primary.Lifestyle
+ggplot(d_p, aes(sample = resid)) +
+  stat_qq() +
+  stat_qq_line() +
+  facet_wrap(~ Primary.Lifestyle)
+
+ggplot(d_p, aes(x = resid)) +
+  geom_histogram(bins = 30, fill = "blue", color = "black") +
+  facet_wrap(~ Primary.Lifestyle)
+
+```
